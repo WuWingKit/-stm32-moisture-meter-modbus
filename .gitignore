@@ -1,0 +1,25 @@
+# Keil5 build outputs
+OBJ/
+Listings/
+
+# Keil5 user-specific files
+*.uvguix.*
+*.uvoptx
+DebugConfig/
+JLinkSettings.ini
+EventRecorderStub.scvd
+
+# Compiled objects
+*.o
+*.d
+*.crf
+*.dep
+*.htm
+*.lnp
+*.sct
+*.lst
+
+# Misc
+.DS_Store
+Thumbs.db
+Desktop.ini
