@@ -1,153 +1,101 @@
-# Moisture Meter Modbus Slave (STM32F103RC)
+# STM32 Moisture Meter Communication System over Modbus
 
-A complete embedded system project that simulates a **soil moisture meter Modbus RTU slave** using STM32F103RC, communicating with a host PC over Ethernet via an NT1-B serial-to-Ethernet module.
+[中文](./README.zh-CN.md) · [Experiment report](./docs/experiment-report.docx) · [Presentation](./presentation/project-presentation.pptx)
 
-## System Architecture
+[![STM32F103](https://img.shields.io/badge/MCU-STM32F103RC-03234B?logo=stmicroelectronics)](https://www.st.com/en/microcontrollers-microprocessors/stm32f103rc.html)
+[![Modbus](https://img.shields.io/badge/Protocol-Modbus_RTU_over_TCP-1F6FEB)](https://modbus.org/)
+[![C](https://img.shields.io/badge/Language-C-A8B9CC?logo=c)](https://www.iso.org/standard/82075.html)
+[![Keil](https://img.shields.io/badge/IDE-Keil_MDK-394049)](https://www.keil.com/)
+[![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/Archive-CC_BY--NC--SA_4.0-lightgrey.svg)](./LICENSE-CONTENT.md)
 
-```
-MThings / Modbus Poll (PC, Modbus Master)
-    ↕ TCP/IP (Ethernet)
-Router (192.168.0.1)
-    ↕ Ethernet
-NT1-B Serial-to-Ethernet Module (TCP Server, IP: 192.168.0.10:502)
-    ↕ UART Serial (9600bps, 8N1)
-STM32F103RC (Modbus Slave, Address 0x01)
-```
+An end-to-end industrial communication experiment in which an STM32F103RC simulates a moisture meter Modbus slave, an EBYTE NT1-B transparently bridges UART and Ethernet, and MThings acts as the supervisory master.
 
-## Features
+![System architecture](./assets/system-architecture.png)
 
-- **Modbus RTU Slave** — Supports Function Code 03 (Read Registers) and 06 (Write Single Register)
-- **Dynamic Sensor Simulation** — Moisture and temperature values update every second with realistic random walk
-- **Dual Serial Ports** — USART2 for Modbus communication, USART1 for real-time debug output (printf)
-- **NT1-B Transparent Forwarding** — STM32 processes only serial RTU frames, no TCP/IP stack needed
-- **Read-Only Protection** — Moisture and temperature registers reject write operations
+## Project at a glance
 
-## Register Map
+| Item | Details |
+|---|---|
+| Project period | **April 2026** (final report dated 30 April 2026) |
+| Project lead | **Hu Rongjie (胡荣杰)** |
+| Actual developer | **Hu Rongjie — sole designer and developer** |
+| Contribution clarification | Any other names associated with the course group were nominal only. Firmware, protocol implementation, networking, hardware integration, debugging, validation, presentation, and report were completed by **Hu Rongjie alone**. |
+| Project type | Embedded firmware + industrial protocol + network integration experiment |
+| Prototype cost | **Not recorded in the supplied materials — to be added** |
+| Completion status | FC03/FC06, network bridge, live host monitoring, and read/write validation completed |
 
-| Address | Name | Type | Initial | Description |
-|---------|------|------|---------|-------------|
-| 0x0000 | Address Setting | R/W | 1 | Slave address |
-| 0x0001 | Moisture Parameter | R/W | 0 | Parameter setting |
-| 0x0010 | Stone Type | R/W | 1 | 1=coarse sand, 2=fine sand... |
-| 0x0011 | Moisture Value | Read-only | 128 | ×10, range 50~200 (5.0%~20.0%) |
-| 0x0012 | Temperature | Read-only | 253 | ×10, range 150~350 (15.0℃~35.0℃) |
+## Commercialization and application analysis
 
-## Project Structure
+This prototype demonstrates a low-cost retrofit path for legacy serial instruments: keep the RTU device firmware and place a transparent serial-to-Ethernet bridge in front of it. The pattern can be applied to moisture meters, weighing instruments, environmental sensors, laboratory rigs, and older factory equipment that must be connected to a local monitoring system without redesigning the controller.
 
-```
-Moisture meter/
-├── CORE/                    # ARM CMSIS core + startup
-│   ├── core_cm3.c/h
-│   └── startup_stm32f10x_hd.s
-├── STM32F10x_FWLib/         # ST Standard Peripheral Library
-│   ├── inc/                 (22 headers)
-│   └── src/                 (22 sources)
-├── SYSTEM/                  # System utilities (Alientek framework)
-│   ├── delay/               delay_init, delay_ms, delay_us
-│   ├── sys/                 Bit-band operations, system config
-│   └── usart/               USART1 init + printf redirect
-├── USER/
-│   ├── main.c               # ★ Main: Modbus slave logic + sensor simulation
-│   ├── stm32f10x_it.c/h     # Interrupt handlers
-│   ├── stm32f10x_conf.h     # Peripheral configuration
-│   ├── system_stm32f10x.c/h # System clock init
-│   └── Moisture_Meter.uvprojx # Keil5 project file
-└── OBJ/                     # Build output (Moisture_Meter.hex)
+For a commercial product, the simulated values must be replaced by calibrated sensor acquisition; RS-485 isolation, surge/ESD protection, watchdog recovery, proper Modbus exception responses, configuration security, device provisioning, and long-duration reliability tests are also required. The current system is best understood as a validated communication prototype, not a production moisture instrument.
+
+## Architecture and protocol
+
+```text
+MThings master
+    │ TCP/IP
+Router / LAN
+    │ TCP, port 502
+EBYTE NT1-B (transparent bridge)
+    │ UART, 9600 bps, 8N1
+STM32F103RC Modbus RTU slave, address 0x01
 ```
 
-## Hardware Requirements
+The transport is **Modbus RTU over TCP**, not native Modbus TCP. The NT1-B does not translate Modbus frames; it forwards bytes unchanged. Selecting native Modbus TCP adds a 7-byte MBAP header, so the STM32 sees `0x00` instead of slave address `0x01` and rejects the frame. Switching MThings to RTU over TCP solved the end-to-end failure.
 
-| Device | Model | Purpose |
-|--------|-------|---------|
-| MCU | STM32F103RC | Modbus slave controller |
-| Serial-Ethernet Module | EBYTE NT1-B | Transparent UART↔TCP forwarding |
-| Router | Any | LAN for NT1-B and PC |
-| TTL-USB | CH340/CP2102 | Debug output (USART1, 115200bps) |
-| Programmer | ST-Link V2 | Flash/debug |
+### Implemented register map
 
-## Wiring
+| Address | Register | Access | Initial/raw value | Host display |
+|---|---|---|---:|---:|
+| `0x0010` | Aggregate/stone type | Read/write | `1` | `1` |
+| `0x0011` | Simulated moisture | Read-only | `128` | `12.8%` |
+| `0x0012` | Simulated temperature | Read-only | `253` | `25.3 °C` |
 
-**STM32 ↔ NT1-B (Modbus, USART2):**
-```
-PA2 (TX)  →  RXD
-PA3 (RX)  ←  TXD
-GND       →  GND
-3.3V      →  VCC
-```
+Moisture and temperature are stored as value × 10 and updated once per second using bounded pseudo-random walks. They are **simulated signals**, not readings from a physical moisture sensor.
 
-**STM32 ↔ TTL-USB (Debug, USART1):**
-```
-PA9 (TX)  →  RXD
-GND       →  GND
-```
+### Firmware behavior
 
-**NT1-B ↔ Router ↔ PC:**
-```
-NT1-B LAN port ──ethernet──→ Router ──ethernet──→ PC
-```
+- USART2 receives RTU frames at `9600 bps, 8N1` through an interrupt-driven buffer.
+- The foreground loop waits 20 ms after reception, validates address and CRC16-Modbus, then dispatches the request.
+- Function `0x03` reads holding registers; function `0x06` writes a single allowed register and echoes the request.
+- Moisture and temperature registers reject FC06 writes.
+- USART1 outputs startup status, sensor values, RX/TX frames, and register operations at `115200 bps`.
 
-## NT1-B Configuration
+![Validated host-side results](./assets/experiment-results.png)
 
-Configure via EBYTE Network Configuration Tool or web interface:
+## Verified results
 
-| Parameter | Value |
-|-----------|-------|
-| Work Mode | TCP Server |
-| Local IP | 192.168.0.10 |
-| Local Port | 502 |
-| Baud Rate | 9600 |
-| Data Bits / Stop Bits / Parity | 8 / 1 / None |
+- MThings read all three registers through the complete Ethernet/UART chain.
+- Writing value `3` to `0x0010` returned the required FC06 echo and was confirmed by a subsequent read.
+- Writing to read-only `0x0011` was rejected and caused a host timeout.
+- Live moisture and temperature curves refreshed from the simulated values.
+- Debug logs exposed raw hexadecimal request and response frames.
 
-## Building
+## Build and reproduce
 
-1. Open `USER/Moisture_Meter.uvprojx` in Keil MDK-ARM V5
-2. Ensure compiler defines: `STM32F10X_HD,USE_STDPERIPH_DRIVER`
-3. Build (F7) → output hex to `OBJ/Moisture_Meter.hex`
-4. Flash via ST-Link
+1. Open `USER/Moisture_Meter.uvprojx` in Keil MDK 5 and build the STM32F103RC target.
+2. Flash with ST-Link.
+3. Connect STM32 `PA2 (TX)` to NT1-B `RXD`, `PA3 (RX)` to `TXD`, and share ground.
+4. Configure NT1-B as TCP Server, serial `9600 8N1`, with an address reachable from the host LAN.
+5. In MThings select **Modbus RTU over TCP**, slave address `1`, and add addresses 16–18.
 
-## Debug Output
+The archived report records the original lab address `192.168.0.10:502`; choose an appropriate non-conflicting address on your own network.
 
-Connect TTL-USB to USART1 (PA9, 115200bps):
+## Repository contents
 
-```
-=== Moisture Meter Modbus Slave ===
-Slave Addr: 0x01
-USART2: 9600 bps (Modbus)
-USART1: 115200 bps (Debug)
-Waiting for Modbus requests...
+- `USER/main.c`: protocol, registers, sensor simulation, and dual-UART logic
+- `docs/experiment-report.docx`: complete original experiment report
+- `presentation/project-presentation.pptx`: original 44-slide presentation
+- `assets/`: README images exported from that presentation
 
-[SENSOR] Moisture=12.8%  Temp=25.3C
-[RX] 8 bytes: 01 03 00 11 00 01 D5 CA
-FC03: read reg 0x0011, count 1
-[TX] 7 bytes: 01 03 02 00 80 B9 FC
-[SENSOR] Moisture=13.1%  Temp=25.2C
-```
+## Limitations and next steps
 
-## MThings / Modbus Poll Setup
-
-**⚠️ Important:** Select **"Modbus RTU over TCP"** (NOT "Modbus TCP").
-
-| Parameter | Value |
-|-----------|-------|
-| Protocol | Modbus RTU over TCP |
-| IP Address | 192.168.0.10 |
-| Port | 502 |
-| Slave Address | 1 |
-
-**Why not Modbus TCP?** The NT1-B is in transparent forwarding mode. Modbus TCP frames have a 7-byte MBAP header instead of the slave address as the first byte, so the STM32 address check fails.
-
-## Modbus RTU vs TCP over NT1-B
-
-```
-Modbus RTU (works):     [Addr][FC][Data][CRC]
-Modbus TCP (fails):     [MBAP:7B][UnitID][FC][Data]   ← first byte = 0x00, not 0x01
-RTU over TCP (works):   [Addr][FC][Data][CRC]          ← same as RTU, over TCP
-```
-
-## CRC16-Modbus
-
-Generator polynomial: `0x8005` (reversed: `0xA001`). Initial value: `0xFFFF`. Low byte sent first.
+- No physical moisture sensor is connected.
+- Frame delimiting uses a fixed 20 ms wait rather than a timer/idle-line state machine.
+- Invalid writes are silently dropped instead of returning standard Modbus exception frames.
+- FC16, native Modbus TCP, RS-485 multi-drop, authentication, and cloud telemetry are not implemented.
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+Project-authored documentation, presentation, and images are shared under **CC BY-NC-SA 4.0**; see [LICENSE-CONTENT.md](./LICENSE-CONTENT.md). Source and third-party vendor components retain the terms stated in their respective files.
